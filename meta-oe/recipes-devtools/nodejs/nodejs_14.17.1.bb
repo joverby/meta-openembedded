@@ -1,12 +1,12 @@
 DESCRIPTION = "nodeJS Evented I/O for V8 JavaScript"
 HOMEPAGE = "http://nodejs.org"
 LICENSE = "MIT & BSD & Artistic-2.0"
-LIC_FILES_CHKSUM = "file://LICENSE;md5=8c66ff8861d9f96076a7cb61e3d75f54"
+LIC_FILES_CHKSUM = "file://LICENSE;md5=a1016f9b7979cfe6fc3466a9bba60b1e"
 
 DEPENDS = "openssl"
-DEPENDS_append_class-target = " nodejs-native"
+DEPENDS_append_class-target = " qemu-native"
 
-inherit pkgconfig python3native
+inherit pkgconfig python3native qemu
 
 COMPATIBLE_MACHINE_armv4 = "(!.*armv4).*"
 COMPATIBLE_MACHINE_armv5 = "(!.*armv5).*"
@@ -21,13 +21,18 @@ SRC_URI = "http://nodejs.org/dist/v${PV}/node-v${PV}.tar.xz \
            file://0004-v8-don-t-override-ARM-CFLAGS.patch \
            file://big-endian.patch \
            file://mips-warnings.patch \
-           file://0001-Remove-use-of-register-r7-because-llvm-now-issues-an.patch \
-           file://CVE-2021-44532.patch \
+           file://mips-less-memory.patch \
            "
 SRC_URI_append_class-target = " \
            file://0002-Using-native-binaries.patch \
            "
-SRC_URI[sha256sum] = "7fd805571df106f086f4c45e131efed98bfd62628d9dec96bd62f8c11b0c48dc"
+SRC_URI_append_toolchain-clang_x86 = " \
+           file://libatomic.patch \
+           "
+SRC_URI_append_toolchain-clang_powerpc64le = " \
+           file://0001-ppc64-Do-not-use-mminimal-toc-with-clang.patch \
+           "
+SRC_URI[sha256sum] = "ddf1d2d56ddf35ecd98c5ea5ddcd690b245899f289559b4330c921255f5a247f"
 
 S = "${WORKDIR}/node-v${PV}"
 
@@ -40,7 +45,7 @@ def map_nodejs_arch(a, d):
     if   re.match('i.86$', a): return 'ia32'
     elif re.match('x86_64$', a): return 'x64'
     elif re.match('aarch64$', a): return 'arm64'
-    elif re.match('(powerpc64|ppc64le)$', a): return 'ppc64'
+    elif re.match('(powerpc64|powerpc64le|ppc64le)$', a): return 'ppc64'
     elif re.match('powerpc$', a): return 'ppc'
     return a
 
@@ -94,12 +99,43 @@ python do_unpack() {
         shutil.rmtree(d.getVar('S') + '/deps/zlib', True)
 }
 
+# V8's JIT infrastructure requires binaries such as mksnapshot and
+# mkpeephole to be run in the host during the build. However, these
+# binaries must have the same bit-width as the target (e.g. a x86_64
+# host targeting ARMv6 needs to produce a 32-bit binary). Instead of
+# depending on a third Yocto toolchain, we just build those binaries
+# for the target and run them on the host with QEMU.
+python do_create_v8_qemu_wrapper () {
+    """Creates a small wrapper that invokes QEMU to run some target V8 binaries
+    on the host."""
+    qemu_libdirs = [d.expand('${STAGING_DIR_HOST}${libdir}'),
+                    d.expand('${STAGING_DIR_HOST}${base_libdir}')]
+    qemu_cmd = qemu_wrapper_cmdline(d, d.getVar('STAGING_DIR_HOST', True),
+                                    qemu_libdirs)
+    wrapper_path = d.expand('${B}/v8-qemu-wrapper.sh')
+    with open(wrapper_path, 'w') as wrapper_file:
+        wrapper_file.write("""#!/bin/sh
+
+# This file has been generated automatically.
+# It invokes QEMU to run binaries built for the target in the host during the
+# build process.
+
+%s "$@"
+""" % qemu_cmd)
+    os.chmod(wrapper_path, 0o755)
+}
+
+do_create_v8_qemu_wrapper[dirs] = "${B}"
+addtask create_v8_qemu_wrapper after do_configure before do_compile
+
+LDFLAGS_append_x86 = " -latomic"
+
 # Node is way too cool to use proper autotools, so we install two wrappers to forcefully inject proper arch cflags to workaround gypi
 do_configure () {
     export LD="${CXX}"
     GYP_DEFINES="${GYP_DEFINES}" export GYP_DEFINES
     # $TARGET_ARCH settings don't match --dest-cpu settings
-    python3 configure.py --prefix=${prefix} --cross-compiling --without-snapshot --shared-openssl \
+    python3 configure.py --prefix=${prefix} --cross-compiling --shared-openssl \
                --without-dtrace \
                --without-etw \
                --dest-cpu="${@map_nodejs_arch(d.getVar('TARGET_ARCH'), d)}" \
@@ -111,6 +147,7 @@ do_configure () {
 
 do_compile () {
     export LD="${CXX}"
+    install -Dm 0755 ${B}/v8-qemu-wrapper.sh ${B}/out/Release/v8-qemu-wrapper.sh
     oe_runmake BUILDTYPE=Release
 }
 
@@ -118,7 +155,7 @@ do_install () {
     oe_runmake install DESTDIR=${D}
 
     # wasn't updated since 2009 and is the only thing requiring python2 in runtime
-    # ERROR: nodejs-12.14.1-r0 do_package_qa: QA Issue: /usr/lib/node_modules/npm/node_modules/node-gyp/gyp/samples/samples contained in package nodejs-npm requires /usr/bin/python, but no providers found in RDEPENDS_nodejs-npm? [file-rdeps]
+    # ERROR: nodejs-12.14.1-r0 do_package_qa: QA Issue: /usr/lib/node_modules/npm/node_modules/node-gyp/gyp/samples/samples contained in package nodejs-npm requires /usr/bin/python, but no providers found in RDEPENDS:nodejs-npm? [file-rdeps]
     rm -f ${D}${exec_prefix}/lib/node_modules/npm/node_modules/node-gyp/gyp/samples/samples
 }
 

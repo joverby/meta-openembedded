@@ -11,17 +11,17 @@ SECTION = "libs"
 DEPENDS = "sqlite3 nspr zlib nss-native"
 DEPENDS_class-native = "sqlite3-native nspr-native zlib-native"
 
-LICENSE = "MPL-2.0 | (MPL-2.0 & GPL-2.0+) | (MPL-2.0 & LGPL-2.1+)"
+LICENSE = "(MPL-2.0 & MIT) | (MPL-2.0 & GPL-2.0+ & MIT) | (MPL-2.0 & LGPL-2.1+ & MIT)"
 
 LIC_FILES_CHKSUM = "file://nss/COPYING;md5=3b1e88e1b9c0b5a4b2881d46cce06a18 \
                     file://nss/lib/freebl/mpi/doc/LICENSE;md5=491f158d09d948466afce85d6f1fe18f \
-                    file://nss/lib/freebl/mpi/doc/LICENSE-MPL;md5=5d425c8f3157dbf212db2ec53d9e5132"
+                    file://nss/lib/freebl/mpi/doc/LICENSE-MPL;md5=5d425c8f3157dbf212db2ec53d9e5132 \
+                    file://nss/lib/freebl/verified/Hacl_Poly1305_256.c;beginline=1;endline=22;md5=d4096c1e4421ee56e9e0f441a8161f78"
 
 VERSION_DIR = "${@d.getVar('BP').upper().replace('-', '_').replace('.', '_') + '_RTM'}"
 
 SRC_URI = "http://ftp.mozilla.org/pub/mozilla.org/security/nss/releases/${VERSION_DIR}/src/${BP}.tar.gz \
            file://nss.pc.in \
-           file://signlibs.sh \
            file://0001-nss-fix-support-cross-compiling.patch \
            file://nss-no-rpath-for-cross-compiling.patch \
            file://nss-fix-incorrect-shebang-of-perl.patch \
@@ -32,19 +32,8 @@ SRC_URI = "http://ftp.mozilla.org/pub/mozilla.org/security/nss/releases/${VERSIO
            file://system-pkcs11.txt \
            file://nss-fix-nsinstall-build.patch \
            file://0001-freebl-add-a-configure-option-to-disable-ARM-HW-cryp.patch \
-           file://riscv.patch \
-           file://0001-Enable-uint128-on-mips64.patch \
-           file://0001-Bug-1631576-Force-a-fixed-length-for-DSA-exponentiat.patch \
-           file://CVE-2020-12401.patch \
-           file://CVE-2020-6829_12400.patch \
-           file://CVE-2020-12403_1.patch \
-           file://CVE-2020-12403_2.patch \
-           file://CVE-2021-43527.patch \
-           file://CVE-2022-22747.patch \
            "
-
-SRC_URI[md5sum] = "6acaf1ddff69306ae30a908881c6f233"
-SRC_URI[sha256sum] = "085c5eaceef040eddea639e2e068e70f0e368f840327a678ef74ae3d6c15ca78"
+SRC_URI[sha256sum] = "d3175427172e9c3a6f1ebc74452cb791590f28191c6a1a443dbc0d87c9df1126"
 
 UPSTREAM_CHECK_URI = "https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/NSS_Releases"
 UPSTREAM_CHECK_REGEX = "NSS_(?P<pver>.+)_release_notes"
@@ -64,6 +53,14 @@ CFLAGS_append_class-native = " -D_XOPEN_SOURCE "
 
 do_configure_prepend_libc-musl () {
     sed -i -e '/-DHAVE_SYS_CDEFS_H/d' ${S}/nss/lib/dbm/config/config.mk
+}
+
+do_configure_prepend_powerpc64le_toolchain-clang () {
+    sed -i -e 's/\-std=c99/\-std=gnu99/g' ${S}/nss/coreconf/command.mk
+}
+
+do_configure_prepend_powerpc64_toolchain-clang () {
+    sed -i -e 's/\-std=c99/\-std=gnu99/g' ${S}/nss/coreconf/command.mk
 }
 
 do_compile_prepend_class-native() {
@@ -87,12 +84,11 @@ do_compile() {
     export NATIVE_CC="${BUILD_CC}"
     # Additional defines needed on Centos 7
     export NATIVE_FLAGS="${BUILD_CFLAGS} -DLINUX -Dlinux"
+    export BUILD_OPT=1
 
     # POSIX.1-2001 states that the behaviour of getcwd() when passing a null
     # pointer as the buf argument, is unspecified.
     export NATIVE_FLAGS="${NATIVE_FLAGS} -DGETCWD_CANT_MALLOC"
-
-    export BUILD_OPT=1
 
     export FREEBL_NO_DEPEND=1
     export FREEBL_LOWHASH=1
@@ -111,7 +107,7 @@ do_compile() {
 
     if [ "${TARGET_ARCH}" = "powerpc" ]; then
         OS_TEST=ppc
-    elif [ "${TARGET_ARCH}" = "powerpc64" ]; then
+    elif [ "${TARGET_ARCH}" = "powerpc64" -o "${TARGET_ARCH}" = "powerpc64le" ]; then
         OS_TEST=ppc64
     elif [ "${TARGET_ARCH}" = "mips" -o "${TARGET_ARCH}" = "mipsel" -o "${TARGET_ARCH}" = "mips64" -o "${TARGET_ARCH}" = "mips64el" ]; then
         OS_TEST=mips
@@ -128,7 +124,6 @@ do_compile() {
     fi
 
     export NSS_DISABLE_GTESTS=1
-
     # We can modify CC in the environment, but if we set it via an
     # argument to make, nsinstall, a host program, will also build with it!
     #
@@ -140,7 +135,8 @@ do_compile() {
     export CC="${CC} ${CFLAGS}"
     make -C ./nss CCC="${CXX} -g" \
         OS_TEST=${OS_TEST} \
-        RPATH="${RPATH}"
+        RPATH="${RPATH}" \
+        autobuild
 }
 
 do_compile[vardepsexclude] += "SITEINFO_BITS"
@@ -168,7 +164,7 @@ do_install() {
 
     if [ "${TARGET_ARCH}" = "powerpc" ]; then
         OS_TEST=ppc
-    elif [ "${TARGET_ARCH}" = "powerpc64" ]; then
+    elif [ "${TARGET_ARCH}" = "powerpc64" -o "${TARGET_ARCH}" = "powerpc64le" ]; then
         OS_TEST=ppc64
     elif [ "${TARGET_ARCH}" = "mips" -o "${TARGET_ARCH}" = "mipsel" -o "${TARGET_ARCH}" = "mips64" -o "${TARGET_ARCH}" = "mips64el" ]; then
         OS_TEST=mips
@@ -229,7 +225,6 @@ do_install_append() {
         touch ${D}/${libdir}/$file
         chmod 755 ${D}/${libdir}/$file
     done
-    install -D -m 755 ${WORKDIR}/signlibs.sh ${D}/${bindir}/signlibs.sh
 
     install -d ${D}${libdir}/pkgconfig/
     sed 's/%NSS_VERSION%/${PV}/' ${WORKDIR}/nss.pc.in | sed 's/%NSPR_VERSION%/4.9.2/' > ${D}${libdir}/pkgconfig/nss.pc
@@ -253,20 +248,17 @@ do_install_append_class-target() {
 }
 
 PACKAGE_WRITE_DEPS += "nss-native"
+
 pkg_postinst_${PN} () {
-    if [ -n "$D" ]; then
-        for I in $D${libdir}/lib*.chk; do
-            DN=`dirname $I`
-            BN=`basename $I .chk`
-            FN=$DN/$BN.so
-            shlibsign -i $FN
-            if [ $? -ne 0 ]; then
-                exit 1
-            fi
-        done
-    else
-        signlibs.sh
-    fi
+    for I in $D${libdir}/lib*.chk; do
+        DN=`dirname $I`
+        BN=`basename $I .chk`
+        FN=$DN/$BN.so
+        shlibsign -i $FN
+        if [ $? -ne 0 ]; then
+            echo "shlibsign -i $FN failed"
+        fi
+    done
 }
 
 PACKAGES =+ "${PN}-smime"

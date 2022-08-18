@@ -13,6 +13,8 @@ DEPENDS = "libevent"
 SRC_URI = "http://www.eecis.udel.edu/~ntp/ntp_spool/ntp4/ntp-4.2/ntp-${PV}.tar.gz \
            file://ntp-4.2.4_p6-nano.patch \
            file://reproducibility-fixed-path-to-posix-shell.patch \
+           file://0001-libntp-Do-not-use-PTHREAD_STACK_MIN-on-glibc.patch \
+           file://0001-test-Fix-build-with-new-compiler-defaults-to-fno-com.patch \
            file://ntpd \
            file://ntp.conf \
            file://ntpdate \
@@ -25,6 +27,9 @@ SRC_URI = "http://www.eecis.udel.edu/~ntp/ntp_spool/ntp4/ntp-4.2/ntp-${PV}.tar.g
 "
 
 SRC_URI[sha256sum] = "f65840deab68614d5d7ceb2d0bb9304ff70dcdedd09abb79754a87536b849c19"
+
+# CVE-2016-9312 is only for windows.
+CVE_CHECK_WHITELIST += "CVE-2016-9312"
 
 inherit autotools update-rc.d useradd systemd pkgconfig
 
@@ -154,8 +159,8 @@ FILES_sntp = "${sbindir}/sntp \
 FILES_ntpdc = "${sbindir}/ntpdc"
 FILES_ntpq = "${sbindir}/ntpq"
 
-CONFFILES_${PN} = "${sysconfdir}/ntp.conf"
-CONFFILES_ntpdate = "${sysconfdir}/default/ntpdate"
+CONFFILES:${PN} = "${sysconfdir}/ntp.conf"
+CONFFILES:ntpdate = "${sysconfdir}/default/ntpdate"
 
 INITSCRIPT_NAME = "ntpd"
 # No dependencies, so just go in at the standard level (20)
