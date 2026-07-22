@@ -37,7 +37,7 @@ SRC_URI:append:class-target = " \
            "
 SRC_URI[sha256sum] = "e94afde24db08e0c564ee7110a2d5aab51ee0059382c9fd8233c54eec47b28f9"
 
-S = "${UNPACKDIR}/node-v${PV}"
+S = "${WORKDIR}/node-v${PV}"
 
 # v8 errors out if you have set CCACHE
 CCACHE = ""
