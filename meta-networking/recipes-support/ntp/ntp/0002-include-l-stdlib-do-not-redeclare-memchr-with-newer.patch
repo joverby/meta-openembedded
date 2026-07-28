@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <codex@openai.com>
+Date: Mon, 27 Jul 2026 10:45:00 +0000
+Subject: [PATCH] include: l_stdlib: do not redeclare memchr with newer glibc
+
+With newer glibc headers, `memchr` may already be provided as a fortified
+macro using `_Generic`. The legacy fallback declaration in `l_stdlib.h` then
+expands through that macro and causes a compile failure in the SNTP build.
+
+Skip the fallback declaration when `memchr` is already defined as a macro.
+
+Upstream-Status: Submitted [glibc compatibility]
+Signed-off-by: OpenAI Codex <codex@openai.com>
+---
+ include/l_stdlib.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/l_stdlib.h b/include/l_stdlib.h
+index 18d8557..20d34da 100644
+--- a/include/l_stdlib.h
++++ b/include/l_stdlib.h
+@@ -221,7 +221,7 @@ extern	int	h_errno;
+ extern	int	h_errno;
+ #endif
+ 
+-#ifndef HAVE_MEMCHR
++#if !defined(HAVE_MEMCHR) && !defined(memchr)
+ extern void *memchr(const void *s, int c, size_t n);
+ #endif
+ 
+-- 
+2.43.0
